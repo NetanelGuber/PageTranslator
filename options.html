@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Page Translator settings</title>
+  </head>
+  <body>
+    <main class="settings-card">
+      <p class="eyebrow">Page Translator</p>
+      <h1>On-device translation</h1>
+      <p class="intro">
+        Choose the language pages should be translated into. No translation server or API key is needed.
+      </p>
+
+      <form id="settings-form">
+        <label class="field">
+          <span>Default target language</span>
+          <select id="target-language" required disabled>
+            <option value="">Loading languages…</option>
+          </select>
+        </label>
+
+        <button id="save" class="primary" type="submit" disabled>Save settings</button>
+      </form>
+
+      <section class="privacy-note">
+        <h2>Local and private</h2>
+        <p>
+          Detection and translation run on this device. The first translation for a language direction downloads a
+          Mozilla translation model, typically 20–35 MB, and the browser caches it for later use. Page text is never
+          sent to the model host.
+        </p>
+      </section>
+
+      <section class="privacy-note">
+        <h2>Downloaded models</h2>
+        <p>Clear the on-disk model cache if you want to reclaim storage. Models download again when required.</p>
+        <button id="clear-models" type="button">Clear downloaded models</button>
+      </section>
+
+      <p id="settings-result" role="status"></p>
+    </main>
+    <script type="module" src="/src/options.ts"></script>
+  </body>
+</html>

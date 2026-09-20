@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Page Translator",
+  "version": "0.5.0",
+  "description": "Detects and translates page text locally with an on-device WebAssembly engine.",
+  "minimum_chrome_version": "114",
+  "permissions": ["storage", "activeTab", "offscreen"],
+  "host_permissions": ["https://storage.googleapis.com/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Page Translator",
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}

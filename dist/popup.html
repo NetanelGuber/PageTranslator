@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Page Translator</title>
+    <script type="module" crossorigin src="/assets/popup-CUXP_Iih.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/modulepreload-polyfill-P2Xu9kJm.js">
+    <link rel="modulepreload" crossorigin href="/assets/languages-pltVzrwW.js">
+    <link rel="modulepreload" crossorigin href="/assets/storage-DheYnYNU.js">
+    <link rel="stylesheet" crossorigin href="/assets/ui-CSG-4icu.css">
+  </head>
+  <body>
+    <main class="panel">
+      <header>
+        <div>
+          <h1>Page Translator</h1>
+          <p id="status" class="status">Checking this page…</p>
+        </div>
+        <span id="status-dot" class="status-dot" aria-hidden="true"></span>
+      </header>
+
+      <label class="field">
+        <span>Translate to</span>
+        <select id="target-language" disabled>
+          <option value="">Loading languages…</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Translate from on this site</span>
+        <select id="source-language" disabled>
+          <option value="">Auto-detect</option>
+        </select>
+        <small>Choosing a language disables detection for this hostname.</small>
+      </label>
+
+      <div class="actions">
+        <button id="translate" class="primary" disabled>Translate page</button>
+        <button id="translate-new" disabled>Translate new/changed content</button>
+        <button id="restore" disabled>Show original</button>
+        <button id="retry" hidden>Retry</button>
+      </div>
+
+      <label class="toggle-row">
+        <input id="aggressive" type="checkbox" disabled />
+        <span>
+          <strong>Aggressive mode</strong>
+          <small>Includes hidden and normally skipped text.</small>
+        </span>
+      </label>
+
+      <label class="toggle-row">
+        <input id="always-site" type="checkbox" disabled />
+        <span>
+          <strong>Always translate this site</strong>
+          <small>Automatically translates after each reload.</small>
+        </span>
+      </label>
+
+      <label class="toggle-row">
+        <input id="never-site" type="checkbox" disabled />
+        <span>
+          <strong>Never prompt on this site</strong>
+          <small id="hostname">Current hostname</small>
+        </span>
+      </label>
+
+      <footer>
+        <button id="settings" class="link-button">Translation settings</button>
+      </footer>
+    </main>
+  </body>
+</html>
