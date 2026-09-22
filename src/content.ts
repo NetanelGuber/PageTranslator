@@ -1,7 +1,7 @@
 import { createBatches, runWithConcurrency } from "./shared/batching";
 import { CoalescingRunner } from "./shared/coalescing-runner";
 import { DiagnosticBuffer, diagnosticFor, type DiagnosticOutcome } from "./shared/diagnostics";
-import { classifyUnitsForSite, shouldPrompt, type ClassifiedUnit } from "./shared/detection";
+import { classifyUnitsForSite, shouldActOnSavedConsent, shouldPrompt, type ClassifiedUnit } from "./shared/detection";
 import { collectTranslationUnits, collectTranslationUnitsInSubtree, discoverAccessibleRoots, EXTENSION_HOST_ID, isDocument, isElement, restoreIfUnchanged, type ScanStats, type TranslationUnit, type UnitSkip } from "./shared/dom";
 import { removePseudoOverride } from "./shared/pseudo";
 import { SelfWriteTracker } from "./shared/mutation-tracker";
@@ -61,6 +61,7 @@ const processedUnchanged = new ProcessedMarker();
 let activeRequestIds = new Set<string>();
 const requestGenerations = new Map<string, number>();
 let translationActive = false;
+let translationPending = false;
 const observers = new Map<Document | ShadowRoot, MutationObserver>();
 const ownWrites = new SelfWriteTracker();
 const dirtyRoots = new Set<Node>();
@@ -73,6 +74,10 @@ let bannerHost: HTMLElement | null = null;
 let currentRun = 0;
 let settingsChangeTimer: number | null = null;
 const translationRunner = new CoalescingRunner<{ aggressive: boolean; incremental: boolean }>();
+const detectionRunner = new CoalescingRunner<boolean>();
+let promptDismissed = false;
+let neverForSite = false;
+let pageSourceLanguage: string | null = null;
 
 function cacheKey(source: string, target: string, text: string): string {
   return `${source}\u0000${target}\u0000${text}`;
@@ -156,10 +161,12 @@ function showBanner(detectedLanguages: string[], sourceLanguageOverride: string 
     void setAlwaysTranslate(location.hostname, true).then(() => startTranslation(state.aggressive));
   });
   notNow.addEventListener("click", () => {
+    promptDismissed = true;
     removeBanner();
     setState({ phase: "idle", message: "Translation dismissed for this page." });
   });
   never.addEventListener("click", () => {
+    neverForSite = true;
     void setNeverTranslate(location.hostname, true).then(() => {
       removeBanner();
       setState({ phase: "idle", message: "Translation prompts disabled for this site." });
@@ -206,8 +213,8 @@ function mergedDirtyRoots(): Node[] {
   return roots.filter((candidate) => !roots.some((other) => other !== candidate && other.contains(candidate)));
 }
 
-function pendingUnits(aggressive: boolean, full: boolean): { units: TranslationUnit[]; observedRoots: Array<Document | ShadowRoot> } {
-  const skip = diagnosticsEnabled ? traceSkipped : undefined;
+function pendingUnits(aggressive: boolean, full: boolean, diagnostics = diagnosticsEnabled): { units: TranslationUnit[]; observedRoots: Array<Document | ShadowRoot> } {
+  const skip = diagnostics ? traceSkipped : undefined;
   const stats: ScanStats = { nodesVisited: 0, pseudoStyleReads: 0 };
   const dirty = full ? [] : mergedDirtyRoots();
   const scanned = full
@@ -279,6 +286,18 @@ function scheduleIncremental(delay = 100): void {
   }, Math.min(delay, remaining));
 }
 
+function schedulePassiveDetection(delay = 150): void {
+  if (translationActive || translationPending || promptDismissed || neverForSite || bannerHost || !settings?.targetLanguage) return;
+  if (!firstDirtyAt) firstDirtyAt = performance.now();
+  if (mutationTimer !== null) window.clearTimeout(mutationTimer);
+  const remaining = Math.max(0, 700 - (performance.now() - firstDirtyAt));
+  mutationTimer = window.setTimeout(() => {
+    mutationTimer = null;
+    firstDirtyAt = 0;
+    void evaluatePage(false);
+  }, Math.min(delay, remaining));
+}
+
 function invalidatePseudo(predicate: (element: Element) => boolean): void {
   for (const record of [...records]) {
     if ((record.field === "pseudo:before" || record.field === "pseudo:after") && predicate(record.unit.element)) {
@@ -298,10 +317,12 @@ function observeDynamicContent(additionalRoots?: Array<Document | ShadowRoot>): 
   for (const root of roots) {
     if (observers.has(root)) continue;
     const observer = new MutationObserver((mutations) => {
-      if (!translationActive) return;
+      if (!translationActive && (translationPending || promptDismissed || neverForSite || bannerHost)) return;
       let siteMutation = false;
       for (const mutation of mutations) {
         if (ownWrites.consume(mutation)) continue;
+        if (mutation.type === "childList" && mutation.addedNodes.length + mutation.removedNodes.length > 0 &&
+            [...mutation.addedNodes, ...mutation.removedNodes].every((node) => isElement(node) && (node.id === EXTENSION_HOST_ID || node.hasAttribute("data-page-translator-style")))) continue;
         const element = isElement(mutation.target) ? mutation.target : mutation.target.parentElement;
         if (element?.closest(`#${EXTENSION_HOST_ID},[data-page-translator-style]`)) continue;
         siteMutation = true;
@@ -325,7 +346,10 @@ function observeDynamicContent(additionalRoots?: Array<Document | ShadowRoot>): 
         else if (element) dirtyRoots.add(element);
       }
       pruneDetachedRecords();
-      if (siteMutation) scheduleIncremental();
+      if (siteMutation) {
+        if (translationActive) scheduleIncremental();
+        else schedulePassiveDetection();
+      }
     });
     observer.observe(isDocument(root) ? root.documentElement : root, {
       childList: true, subtree: true, characterData: true, characterDataOldValue: true, attributes: true, attributeOldValue: true,
@@ -337,9 +361,10 @@ function observeDynamicContent(additionalRoots?: Array<Document | ShadowRoot>): 
 }
 
 function onFrameLoad(event: Event): void {
-  if (!translationActive || !event.target || !("nodeType" in event.target) || !isElement(event.target as Node) || (event.target as Element).tagName !== "IFRAME") return;
+  if ((!translationActive && (translationPending || promptDismissed || neverForSite || bannerHost)) || !event.target || !("nodeType" in event.target) || !isElement(event.target as Node) || (event.target as Element).tagName !== "IFRAME") return;
   dirtyRoots.add(event.target as Node);
-  scheduleIncremental();
+  if (translationActive) scheduleIncremental();
+  else schedulePassiveDetection();
 }
 
 async function translateBatch(source: string, jobs: ChunkJob[], target: string, runId: number): Promise<{ outputs: Map<ChunkJob, string>; error?: string }> {
@@ -390,13 +415,18 @@ async function translateBatch(source: string, jobs: ChunkJob[], target: string, 
 function startTranslation(aggressive = false, incremental = false): Promise<void> {
   if (!incremental) {
     currentRun += 1;
+    if (mutationTimer !== null) window.clearTimeout(mutationTimer);
+    mutationTimer = null;
+    firstDirtyAt = 0;
     fullScanRequested = true;
     processedUnchanged.clear();
     if (activeRequestIds.size) void chrome.runtime.sendMessage({ type: "CANCEL_REQUESTS", requestIds: [...activeRequestIds] } satisfies RuntimeMessage).catch(() => undefined);
   }
+  translationPending = true;
+  const requestedRun = currentRun;
   return translationRunner.run({ aggressive, incremental }, ({ aggressive: nextAggressive, incremental: nextIncremental }) =>
     runTranslation(nextAggressive, nextIncremental)
-  );
+  ).finally(() => { if (requestedRun === currentRun) translationPending = false; });
 }
 
 async function runTranslation(aggressive = false, incremental = false): Promise<void> {
@@ -533,9 +563,11 @@ async function runTranslation(aggressive = false, incremental = false): Promise<
 }
 
 async function restorePage(reevaluate = false): Promise<void> {
-  const wasActive = activeRequestIds.size > 0;
+  const wasActive = activeRequestIds.size > 0 || translationActive || translationPending;
   currentRun += 1;
+  translationRunner.clearPending();
   translationActive = false;
+  translationPending = false;
   fullScanRequested = false;
   dirtyRoots.clear();
   ownWrites.clear();
@@ -544,10 +576,8 @@ async function restorePage(reevaluate = false): Promise<void> {
   observers.clear();
   if (mutationTimer !== null) window.clearTimeout(mutationTimer);
   mutationTimer = null;
-  if (activeRequestIds.size) {
-    await chrome.runtime.sendMessage({ type: "CANCEL_REQUESTS", requestIds: [...activeRequestIds] } satisfies RuntimeMessage).catch(() => undefined);
-    activeRequestIds.clear();
-  }
+  const requestIds = [...activeRequestIds];
+  activeRequestIds.clear();
   pruneDetachedRecords();
   for (const record of records) {
     restoreIfUnchanged(record.unit, record.original, record.translated);
@@ -562,18 +592,31 @@ async function restorePage(reevaluate = false): Promise<void> {
     canRestore: false,
     canRetry: false
   });
+  if (requestIds.length) void chrome.runtime.sendMessage({ type: "CANCEL_REQUESTS", requestIds } satisfies RuntimeMessage).catch(() => undefined);
   if (reevaluate) await evaluatePage();
 }
 
-async function evaluatePage(): Promise<void> {
-  removeBanner();
-  diagnosticsEnabled = (await chrome.storage.local.get("developerDiagnostics")).developerDiagnostics === true;
-  settings = await getSettings();
-  languages = await getLanguageCatalog();
-  const info = await chrome.runtime.sendMessage({ type: "GET_ENGINE_INFO" } satisfies RuntimeMessage).catch(() => null) as
-    | { ok: true; settings: TranslatorSettings; languages: LanguageInfo[] }
-    | null;
-  if (info?.ok) { settings = info.settings; languages = info.languages; }
+function evaluatePage(full = true): Promise<void> {
+  return detectionRunner.run(full, runEvaluation);
+}
+
+async function runEvaluation(full: boolean): Promise<void> {
+  if (!full && (translationActive || translationPending || promptDismissed || neverForSite || bannerHost || dirtyRoots.size === 0)) return;
+  const runId = currentRun;
+  if (full) {
+    observeDynamicContent();
+    removeBanner();
+    diagnosticsEnabled = (await chrome.storage.local.get("developerDiagnostics")).developerDiagnostics === true;
+    settings = await getSettings();
+    languages = await getLanguageCatalog();
+    const info = await chrome.runtime.sendMessage({ type: "GET_ENGINE_INFO" } satisfies RuntimeMessage).catch(() => null) as
+      | { ok: true; settings: TranslatorSettings; languages: LanguageInfo[] }
+      | null;
+    if (info?.ok) { settings = info.settings; languages = info.languages; }
+    neverForSite = await isNeverTranslate(location.hostname);
+    pageSourceLanguage = await getSourceLanguage(location.hostname);
+  }
+  if (runId !== currentRun || translationActive || translationPending) return;
   if (!settings?.targetLanguage || languages.length === 0) {
     setState({ ...INITIAL_STATE, phase: "setup", message: "Choose a target language in extension settings." });
     return;
@@ -582,18 +625,19 @@ async function evaluatePage(): Promise<void> {
     setState({ ...INITIAL_STATE, phase: "setup", targetLanguage: settings.targetLanguage, message: `The selected target ${languageName(settings.targetLanguage)} has no route in this bundled catalog. Choose another target in settings.` });
     return;
   }
-  if (await isNeverTranslate(location.hostname)) {
+  if (neverForSite) {
     setState({ ...INITIAL_STATE, targetLanguage: settings.targetLanguage, message: "Translation prompts are disabled for this site." });
     return;
   }
 
-  const sourceLanguageOverride = await getSourceLanguage(location.hostname);
+  const sourceLanguageOverride = pageSourceLanguage;
   setState({
     phase: "detecting",
     message: sourceLanguageOverride ? `Using ${languageName(sourceLanguageOverride)} as the selected source language…` : "Detecting page languages locally…",
     targetLanguage: settings.targetLanguage
   });
   await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  if (runId !== currentRun || translationActive || translationPending) return;
   if (sourceLanguageOverride && normalizeLanguageCode(sourceLanguageOverride) === normalizeLanguageCode(settings.targetLanguage)) {
     setState({
       phase: "idle",
@@ -610,21 +654,26 @@ async function evaluatePage(): Promise<void> {
     });
     return;
   }
-  const classified = classifyUnitsForSite(collectTranslationUnits(document, false, diagnosticsEnabled ? traceSkipped : undefined), languages, sourceLanguageOverride);
+  if (full) dirtyRoots.clear();
+  const { units, observedRoots } = pendingUnits(false, full, full && diagnosticsEnabled);
+  if (!full) observeDynamicContent(observedRoots);
+  const classified = classifyUnitsForSite(units, languages, sourceLanguageOverride);
   const detectedLanguages = [...new Set(classified.map(({ sourceLanguage }) => sourceLanguage).filter((code): code is string => Boolean(code)))]
     .filter((code) => normalizeLanguageCode(code) !== normalizeLanguageCode(settings!.targetLanguage));
-  if (shouldPrompt(classified.filter(({ sourceLanguage }) => sourceLanguage !== null && supportsPair(languages, sourceLanguage, settings!.targetLanguage)), settings.targetLanguage)) {
-    if (await isAlwaysTranslate(location.hostname)) {
-      setState({ phase: "translating", message: "Automatically translating this site…", detectedLanguages });
-      await startTranslation(false);
-    } else {
-      showBanner(detectedLanguages, sourceLanguageOverride);
-      setState({ phase: "prompt", message: `Translation available from ${detectedLanguages.map(languageName).join(", ")}.`, detectedLanguages });
-    }
+  const routed = classified.filter(({ sourceLanguage }) => sourceLanguage !== null && supportsPair(languages, sourceLanguage, settings!.targetLanguage));
+  const always = await isAlwaysTranslate(location.hostname);
+  if (runId !== currentRun || translationActive || translationPending) return;
+  if (shouldActOnSavedConsent(routed, settings.targetLanguage, always, neverForSite, sourceLanguageOverride)) {
+    setState({ phase: "translating", message: "Automatically translating this site…", detectedLanguages });
+    await startTranslation(false);
+  } else if (shouldPrompt(routed, settings.targetLanguage) && !promptDismissed) {
+    showBanner(detectedLanguages, sourceLanguageOverride);
+    setState({ phase: "prompt", message: `Translation available from ${detectedLanguages.map(languageName).join(", ")}.`, detectedLanguages });
   } else {
     setState({
       phase: "idle",
-      message: sourceLanguageOverride && normalizeLanguageCode(sourceLanguageOverride) === normalizeLanguageCode(settings.targetLanguage)
+      message: promptDismissed ? "Translation dismissed for this page."
+        : sourceLanguageOverride && normalizeLanguageCode(sourceLanguageOverride) === normalizeLanguageCode(settings.targetLanguage)
         ? "The selected source and target languages are the same."
         : sourceLanguageOverride
           ? `No eligible text was found to translate from ${languageName(sourceLanguageOverride)}.`
@@ -673,6 +722,7 @@ async function handlePageMessage(message: RuntimeMessage): Promise<unknown> {
     case "PREFERENCES_CHANGED":
       if (message.sourceChanged) currentRun += 1;
       if (await isNeverTranslate(location.hostname)) {
+        neverForSite = true;
         if (!message.sourceChanged) currentRun += 1;
         if (translationActive) await restorePage(false);
         removeBanner();

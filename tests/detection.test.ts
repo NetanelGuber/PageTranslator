@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { classifyUnits, classifyUnitsForSite, detectLocalLanguage, estimatePageLanguage, scriptCompatible, shouldPrompt } from "../src/shared/detection";
+import { classifyUnits, classifyUnitsForSite, detectLocalLanguage, estimatePageLanguage, scriptCompatible, shouldActOnSavedConsent, shouldPrompt } from "../src/shared/detection";
 import { collectTranslationUnits } from "../src/shared/dom";
 
 const languages = [
@@ -36,6 +36,18 @@ describe("local language detection", () => {
     const classified = classifyUnitsForSite(collectTranslationUnits(document), languages, "es");
     expect(classified).not.toHaveLength(0);
     expect(classified.every(({ sourceLanguage }) => sourceLanguage === "es")).toBe(true);
+  });
+
+  it("acts on explicit Always consent for one short routed unit, while preserving prompt and route guards", () => {
+    document.body.innerHTML = '<p lang="es">Buenos días, amigos.</p>';
+    const classified = classifyUnitsForSite(collectTranslationUnits(document), languages, "es");
+    expect(shouldPrompt(classified, "en")).toBe(false);
+    expect(shouldActOnSavedConsent(classified, "en", true, false, "es")).toBe(true);
+    expect(shouldActOnSavedConsent(classified, "en", false, false, "es")).toBe(false);
+    expect(shouldActOnSavedConsent(classified, "en", true, true, "es")).toBe(false);
+    expect(shouldActOnSavedConsent(classified, "en", true, false, null)).toBe(false);
+    expect(shouldActOnSavedConsent(classified, "es", true, false, "es")).toBe(false);
+    expect(shouldActOnSavedConsent([], "en", true, false, "ja")).toBe(false);
   });
 
   it("retains a detector-supported language even without a bundled model route", () => {

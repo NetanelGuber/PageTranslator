@@ -178,3 +178,9 @@ export function shouldPrompt(classified: ClassifiedUnit[], targetLanguage: strin
   const characters = foreign.reduce((total, { unit }) => total + unit.getText().length, 0);
   return characters >= 80 || foreign.length >= 3;
 }
+
+export function shouldActOnSavedConsent(classified: ClassifiedUnit[], targetLanguage: string, always: boolean, never: boolean, explicitSource: string | null): boolean {
+  if (!always || never) return false;
+  const foreign = classified.filter(({ sourceLanguage }) => sourceLanguage && normalizeLanguageCode(sourceLanguage) !== normalizeLanguageCode(targetLanguage));
+  return foreign.length > 0 && (Boolean(explicitSource) || shouldPrompt(foreign, targetLanguage));
+}

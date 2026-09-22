@@ -6,6 +6,8 @@ export class CoalescingRunner<T> {
   private pending: T | null = null;
   private active: Promise<void> | null = null;
 
+  clearPending(): void { this.pending = null; }
+
   run(value: T, task: (value: T) => Promise<void>): Promise<void> {
     this.pending = value;
     if (!this.active) {

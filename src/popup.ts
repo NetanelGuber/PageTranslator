@@ -2,6 +2,7 @@ import "./ui.css";
 import { canBeTarget, normalizeLanguageCode, supportsPair } from "./shared/languages";
 import { getLanguageCatalog, getSettings, getSourceLanguage, isAlwaysTranslate, isNeverTranslate, saveSettings, setAlwaysTranslate, setNeverTranslate, setSourceLanguage } from "./shared/storage";
 import type { LanguageInfo, PageState, RuntimeMessage } from "./shared/types";
+import { pageActionAvailability } from "./shared/page-actions";
 
 const statusText = document.querySelector<HTMLElement>("#status")!;
 const statusDot = document.querySelector<HTMLElement>("#status-dot")!;
@@ -10,6 +11,7 @@ const sourceSelect = document.querySelector<HTMLSelectElement>("#source-language
 const translateButton = document.querySelector<HTMLButtonElement>("#translate")!;
 const translateNewButton = document.querySelector<HTMLButtonElement>("#translate-new")!;
 const restoreButton = document.querySelector<HTMLButtonElement>("#restore")!;
+const cancelButton = document.querySelector<HTMLButtonElement>("#cancel")!;
 const retryButton = document.querySelector<HTMLButtonElement>("#retry")!;
 const aggressiveToggle = document.querySelector<HTMLInputElement>("#aggressive")!;
 const alwaysSiteToggle = document.querySelector<HTMLInputElement>("#always-site")!;
@@ -69,7 +71,10 @@ function render(): void {
   statusDot.dataset.tone = phase === "failed" ? "error" : busy ? "busy" : phase === "complete" ? "ok" : "";
   translateButton.disabled = !settings || !activeTabId || busy || phase === "setup";
   translateNewButton.disabled = !settings || !activeTabId || busy || phase === "setup";
-  restoreButton.disabled = !state?.canRestore || busy;
+  const actions = pageActionAvailability(phase, state?.canRestore ?? false, activeTabId !== null);
+  restoreButton.disabled = !actions.restore || busy;
+  cancelButton.hidden = !actions.cancel;
+  cancelButton.disabled = !actions.cancel;
   retryButton.hidden = !state?.canRetry;
   aggressiveToggle.disabled = !settings || !activeTabId || busy;
   aggressiveToggle.checked = state?.aggressive ?? false;
@@ -125,6 +130,15 @@ translateNewButton.addEventListener("click", async () => {
 });
 
 restoreButton.addEventListener("click", async () => {
+  await sendToPage({ type: "RESTORE_PAGE" });
+  await refreshState();
+});
+
+cancelButton.addEventListener("click", async () => {
+  if (state) {
+    state = { ...state, phase: "cancelled", message: "Cancelling translation and restoring original text…", canRestore: false, canRetry: false };
+    render();
+  }
   await sendToPage({ type: "RESTORE_PAGE" });
   await refreshState();
 });

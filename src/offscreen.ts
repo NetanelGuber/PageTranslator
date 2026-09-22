@@ -2,6 +2,7 @@ import { findRoute, modelFileUrl, releasePairs, type ModelPair, type ModelRegist
 import type { ExtensionFailure, PagePhase, RuntimeMessage, TranslationResponse } from "./shared/types";
 import { requireMatchingCount } from "./shared/batching";
 import { loadVerifiedModelFile } from "./shared/model-files";
+import { EngineWorker } from "./shared/engine-worker";
 
 const MODEL_CACHE = "page-translator-models-v1";
 const IDLE_TIMEOUT_MS = 30_000;
@@ -71,45 +72,21 @@ async function loadBuffers(registry: ModelRegistry, pair: ModelPair, requestId: 
   return { model, shortlist, vocabs, config };
 }
 
-class EngineWorker {
-  private worker = new Worker(chrome.runtime.getURL("engine/translator-worker.js"));
-  private serial = 0;
-  private pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
-  readonly ready: Promise<unknown>;
-
-  constructor() {
-    this.worker.addEventListener("message", ({ data }: MessageEvent<{ id: number; result?: unknown; error?: { message?: string; stack?: string } }>) => {
-      const pending = this.pending.get(data.id);
-      if (!pending) return;
-      this.pending.delete(data.id);
-      if (data.error) pending.reject(Object.assign(new Error(data.error.message ?? "Translation worker error."), { stack: data.error.stack }));
-      else pending.resolve(data.result);
-    });
-    this.worker.addEventListener("error", (event) => this.terminate(new Error(event.message || "The translation worker stopped unexpectedly.")));
-    this.ready = this.call("initialize", [{ cacheSize: 0, useNativeIntGemm: false }]);
-  }
-
-  call<T>(name: string, args: unknown[] = [], transfers: Transferable[] = []): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const id = ++this.serial;
-      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject });
-      this.worker.postMessage({ id, name, args }, transfers);
-    });
-  }
-
-  terminate(reason = new Error("Translation was cancelled.")): void {
-    this.worker.terminate();
-    for (const pending of this.pending.values()) pending.reject(reason);
-    this.pending.clear();
-  }
-}
-
 async function getWorker(): Promise<EngineWorker> {
-  if (!workerClient) {
-    workerClient = new EngineWorker();
-    await workerClient.ready;
+  if (!workerClient || !workerClient.isAlive) {
+    workerClient = new EngineWorker(chrome.runtime.getURL("engine/translator-worker.js"), (failed) => {
+      if (workerClient === failed) { workerClient = null; loadedPair = null; }
+    });
   }
-  return workerClient;
+  const worker = workerClient;
+  try {
+    await worker.ready;
+  } catch (error) {
+    if (workerClient === worker) { workerClient = null; loadedPair = null; }
+    throw error;
+  }
+  if (!worker.isAlive) throw new Error("The translation worker stopped during initialization.");
+  return worker;
 }
 
 function releaseWorker(): void {
@@ -172,7 +149,7 @@ async function translate(message: Extract<RuntimeMessage, { type: "ENGINE_TRANSL
       } catch (error) {
         if (signal.aborted || cancelled.has(message.requestId)) throw error;
         const messageText = error instanceof Error ? error.message : "";
-        if (!/memory access out of bounds/i.test(messageText) && /download failed|unexpected size|integrity check|decompressed/i.test(messageText)) throw error;
+        if (!/memory access out of bounds|pars(?:e|er|ing)|model.*(?:invalid|corrupt|failed)|WebAssembly|WASM/i.test(messageText)) throw error;
         if (!/memory access out of bounds/i.test(messageText)) await evictPairFiles(registry, pair);
         releaseWorker();
         worker = await getWorker();

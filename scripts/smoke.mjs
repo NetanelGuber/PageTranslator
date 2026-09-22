@@ -47,6 +47,16 @@ async function profileWorkingSetBytes(profile) {
 }
 
 const pageServer = createServer((request, response) => {
+  if (request.url === "/late" || request.url === "/hidden") {
+    response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    response.end(`<!doctype html><html><head><title>Late content fixture</title></head><body><main id="late-root">${request.url === "/hidden" ? '<p id="hidden-foreign" hidden lang="es">Esta página contiene suficiente texto en español para solicitar una traducción completa y comprobar un cambio de visibilidad.</p>' : ""}</main></body></html>`);
+    return;
+  }
+  if (request.url === "/short") {
+    response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    response.end('<!doctype html><html><head></head><body><main><p id="short-foreign" lang="es">Buenos días, amigos.</p></main></body></html>');
+    return;
+  }
   if (request.url === "/frame" || request.url === "/frame2") {
     response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     response.end(`<!doctype html><html><body><p id="frame-text" lang="es">${request.url === "/frame" ? "Esta página enmarcada contiene suficiente texto español para comprobar la traducción." : "Esta nueva página enmarcada contiene contenido español después de navegar."}</p></body></html>`);
@@ -126,6 +136,71 @@ try {
   });
   await options.evaluate(async () => chrome.storage.local.set({ developerDiagnostics: true }));
 
+  const late = await context.newPage();
+  await late.goto(`http://127.0.0.1:${pagePort}/late`);
+  const lateTabId = await options.evaluate(async () => (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
+  await options.waitForFunction(async (tabId) => (await chrome.tabs.sendMessage(tabId, { type: "GET_PAGE_STATE" }).catch(() => null))?.phase === "idle", lateTabId);
+  await late.locator("#late-root").evaluate((element) => {
+    element.innerHTML = '<p lang="es">Esta página contiene suficiente texto en español para solicitar una traducción completa y comprobar que la invitación aparece más tarde.</p>';
+  });
+  await late.locator("#page-translator-extension-root").locator("button", { hasText: "Translate" }).first().waitFor({ timeout: 15_000 });
+  if (await late.locator("#page-translator-extension-root").count() !== 1) throw new Error("Late text caused duplicate prompts.");
+  const noConsentContexts = await options.evaluate(async () => chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] }));
+  if (noConsentContexts.length) throw new Error("Late detection started a model before consent.");
+  await late.locator("#page-translator-extension-root").locator("button", { hasText: "Not now" }).click();
+  await late.locator("#late-root").evaluate((element) => {
+    element.insertAdjacentHTML("beforeend", '<p lang="es">Otra oración española confirma que la página no vuelve a mostrar una invitación tras elegir ahora no.</p>');
+  });
+  await late.waitForTimeout(900);
+  if (await late.locator("#page-translator-extension-root").count()) throw new Error("Not now failed to suppress a late prompt on the current page.");
+  await late.close();
+
+  const hidden = await context.newPage();
+  await hidden.goto(`http://127.0.0.1:${pagePort}/hidden`);
+  const hiddenTabId = await options.evaluate(async () => (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
+  await options.waitForFunction(async (tabId) => (await chrome.tabs.sendMessage(tabId, { type: "GET_PAGE_STATE" }).catch(() => null))?.phase === "idle", hiddenTabId);
+  await hidden.locator("#hidden-foreign").evaluate((element) => { element.hidden = false; });
+  await hidden.locator("#page-translator-extension-root").locator("button", { hasText: "Translate" }).first().waitFor({ timeout: 15_000 });
+  await hidden.locator("#page-translator-extension-root").locator("button", { hasText: "Never for this site" }).click();
+  await options.waitForFunction(async () => (await chrome.storage.local.get("sitePreferences")).sitePreferences?.["127.0.0.1"]?.neverTranslate === true);
+  await hidden.close();
+  const neverPage = await context.newPage();
+  await neverPage.goto(`http://127.0.0.1:${pagePort}/late`);
+  await neverPage.locator("#late-root").evaluate((element) => {
+    element.innerHTML = '<p lang="es">Esta página contiene suficiente texto en español para confirmar que nunca se vuelve a mostrar la invitación.</p>';
+  });
+  await neverPage.waitForTimeout(900);
+  if (await neverPage.locator("#page-translator-extension-root").count()) throw new Error("Never for this site failed to suppress the late prompt.");
+  await neverPage.close();
+  await options.evaluate(async () => chrome.storage.local.set({ sitePreferences: {} }));
+
+  await options.evaluate(async () => chrome.storage.local.set({ sitePreferences: { "127.0.0.1": { sourceLanguage: "es" } } }));
+  const short = await context.newPage();
+  await short.goto(`http://127.0.0.1:${pagePort}/short`);
+  const shortTabId = await options.evaluate(async () => (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
+  await options.waitForFunction(async (tabId) => (await chrome.tabs.sendMessage(tabId, { type: "GET_PAGE_STATE" }).catch(() => null))?.phase === "idle", shortTabId);
+  if (await short.locator("#short-foreign").textContent() !== "Buenos días, amigos." || await short.locator("#page-translator-extension-root").count()) throw new Error("A short page translated or prompted without Always consent.");
+  await options.evaluate(async () => chrome.storage.local.set({ sitePreferences: { "127.0.0.1": { alwaysTranslate: true, sourceLanguage: "es" } } }));
+  await short.reload();
+  await short.waitForFunction(() => document.querySelector("#short-foreign")?.textContent !== "Buenos días, amigos.", undefined, { timeout: 90_000 });
+  if (await short.locator("#page-translator-extension-root").count()) throw new Error("Explicit Always consent prompted on a short page.");
+  await options.evaluate(async () => chrome.storage.local.set({ sitePreferences: { "127.0.0.1": { alwaysTranslate: true, neverTranslate: true, sourceLanguage: "es" } } }));
+  await short.reload();
+  await options.waitForFunction(async (tabId) => (await chrome.tabs.sendMessage(tabId, { type: "GET_PAGE_STATE" }).catch(() => null))?.message?.includes("disabled for this site"), shortTabId);
+  if (await short.locator("#short-foreign").textContent() !== "Buenos días, amigos.") throw new Error("Never failed to override Always on a short page.");
+  await options.evaluate(async () => chrome.runtime.sendMessage({ type: "CLEAR_MODEL_CACHE" }));
+  await options.evaluate(async () => chrome.storage.local.set({ sitePreferences: { "127.0.0.1": { alwaysTranslate: true, sourceLanguage: "ja" } } }));
+  await short.reload();
+  await options.waitForFunction(async (tabId) => (await chrome.tabs.sendMessage(tabId, { type: "GET_PAGE_STATE" }).catch(() => null))?.phase === "setup", shortTabId);
+  if (await short.locator("#short-foreign").textContent() !== "Buenos días, amigos." ||
+      (await options.evaluate(async () => chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] }))).length) throw new Error("A missing model route started translation.");
+  await options.evaluate(async () => chrome.storage.local.set({ sitePreferences: { "127.0.0.1": { alwaysTranslate: true, sourceLanguage: "en" } } }));
+  await short.reload();
+  await options.waitForFunction(async (tabId) => (await chrome.tabs.sendMessage(tabId, { type: "GET_PAGE_STATE" }).catch(() => null))?.message?.includes("same"), shortTabId);
+  if (await short.locator("#short-foreign").textContent() !== "Buenos días, amigos.") throw new Error("Same-language Always translated a short page.");
+  await short.close();
+  await options.evaluate(async () => chrome.storage.local.set({ sitePreferences: {} }));
+
   const fixture = await context.newPage();
   const fixtureUrl = `http://127.0.0.1:${pagePort}/`;
   await fixture.goto(fixtureUrl);
@@ -199,7 +274,7 @@ try {
     throw new Error(`Missing model progress phases: ${JSON.stringify(enginePhases)}`);
   }
   if (!earlyDiagnostics?.enabled || !earlyDiagnostics.entries.some((entry) => entry.kind === "pseudo-after" && entry.outcome === "route-missing" && entry.source === "ja") || !earlyDiagnostics.entries.some((entry) => entry.kind === "pseudo-before" && entry.outcome === "translated" && entry.source === "ru")) {
-    throw new Error(`Pseudo diagnostics did not distinguish translated and route-missing text: ${JSON.stringify(earlyDiagnostics?.entries.filter((entry) => entry.kind.startsWith("pseudo")).slice(-20))}`);
+    throw new Error(`Pseudo diagnostics did not distinguish translated and route-missing text: ${JSON.stringify({ entries: earlyDiagnostics?.entries.length, metrics: earlyDiagnostics?.metrics, scan: earlyDiagnostics?.lastScan, pseudo: earlyDiagnostics?.entries.filter((entry) => entry.kind.startsWith("pseudo")).slice(-20) })}`);
   }
   if (!(await fixture.evaluate(() => getComputedStyle(document.querySelector("#japanese-after"), "::after").content)).includes("アカウント")) throw new Error("A Japanese pseudo with no Release model route was overwritten.");
   if (await fixture.evaluate(() => getComputedStyle(document.querySelector("#arabic-before"), "::before").direction) !== "rtl") throw new Error("RTL pseudo direction was lost.");
@@ -343,6 +418,62 @@ try {
   if (!(await fixture.evaluate(() => document.querySelector("#shadow-host").shadowRoot.querySelector("#shadow-text").textContent)).startsWith("Esta raíz")) throw new Error("Shadow text was not restored.");
   if (!(await fixture.evaluate(() => document.querySelector("#same-origin-frame").contentDocument.querySelector("#frame-text").textContent)).startsWith("Esta nueva")) throw new Error("Frame text was not restored.");
   if (await fixture.locator("#long-node").textContent() !== longOriginal) throw new Error("A 20,000-character node did not restore exactly.");
+  await fixture.locator("#dynamic").evaluate((element) => {
+    const paragraph = document.createElement("p");
+    paragraph.id = "cancel-text";
+    paragraph.lang = "es";
+    paragraph.textContent = "Esta nueva frase española prueba la cancelación durante la descarga de un modelo y después permite traducir de nuevo.";
+    element.append(paragraph);
+  });
+
+  let delayedModelRequests = 0;
+  const slowModels = async (route) => {
+    delayedModelRequests += 1;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 1500));
+    await route.continue().catch(() => undefined);
+  };
+  await context.route("**/moz-fx-translations-data--303e-prod-translations-data/**", slowModels);
+  await options.evaluate(async () => chrome.runtime.sendMessage({ type: "CLEAR_MODEL_CACHE" }));
+  const armPopupCancel = async (phaseText) => popup.evaluate((expected) => {
+    window.__cancelSeen = new Promise((resolveSeen) => {
+      const button = document.querySelector("#cancel");
+      const status = document.querySelector("#status");
+      let timer;
+      const observer = new MutationObserver(() => {
+        if (!status.textContent.includes(expected) || button.hidden || button.disabled) return;
+        observer.disconnect();
+        clearTimeout(timer);
+        button.click();
+        resolveSeen(true);
+      });
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, characterData: true });
+      timer = setTimeout(() => { observer.disconnect(); resolveSeen(false); }, 20_000);
+    });
+  }, phaseText);
+  await armPopupCancel("Downloading");
+  await popup.locator("#translate").click();
+  if (!await popup.evaluate(() => window.__cancelSeen)) throw new Error(`Download phase did not expose an enabled Cancel action (delayed model requests: ${delayedModelRequests}).`);
+  await popup.locator("#status", { hasText: /cancelled/i }).waitFor({ timeout: 10_000 });
+  await fixture.locator("#spanish-one").getByText(/^Esta página/).waitFor({ timeout: 10_000 });
+  await context.unroute("**/moz-fx-translations-data--303e-prod-translations-data/**", slowModels);
+  await new Promise((resolveWait) => setTimeout(resolveWait, 700));
+  if (!(await fixture.locator("#spanish-one").textContent()).startsWith("Esta página")) throw new Error("Late download result reappeared after popup cancellation.");
+
+  await popup.locator("#translate").click();
+  await popup.locator("#restore:not(:disabled)").waitFor({ timeout: 90_000 });
+  await popup.locator("#restore").click();
+  await fixture.locator("#spanish-one").getByText(/^Esta página/).waitFor({ timeout: 10_000 });
+  await fixture.locator("#cancel-text").evaluate((element) => {
+    element.textContent = "Otra frase española larga comprueba la cancelación mientras el motor calcula resultados nuevos. ".repeat(240);
+  });
+  await armPopupCancel("Translating on this device");
+  await popup.locator("#translate").click();
+  if (!await popup.evaluate(() => window.__cancelSeen)) throw new Error("Active translation did not expose an enabled Cancel action.");
+  await popup.locator("#status", { hasText: /cancelled/i }).waitFor({ timeout: 10_000 });
+  await new Promise((resolveWait) => setTimeout(resolveWait, 700));
+  if (!(await fixture.locator("#spanish-one").textContent()).startsWith("Esta página")) throw new Error("Late translation result reappeared after popup cancellation.");
+  await popup.locator("#translate").click();
+  await popup.locator("#restore:not(:disabled)").waitFor({ timeout: 90_000 });
 
   await fixture.locator("#dynamic").evaluate((element) => {
     const holder = document.createElement("section");
@@ -400,6 +531,7 @@ try {
   process.stdout.write(`Smoke test passed in ${executablePath}\n`);
   process.stdout.write(`Browser: ${await fixture.evaluate(() => navigator.userAgent)}\n`);
   process.stdout.write(`Verified catalog repair, ${pivotPhases.join("/")} progress, the empty new-content control, unavailable-target setup, and saved site preferences.\n`);
+  process.stdout.write("Verified late-text and visibility prompts, Not now and Never suppression, popup cancellation during download and translation, and short-page Always consent with Never, same-language, and missing-route guards.\n");
   process.stdout.write("Verified local direct and sequential-pivot translation, consent gate, mixed languages, pseudo elements, nested shadow roots, same-origin frames, site-edit race, target-switch race, scoped dynamic scans, a >20,000-character node and exact restoration, queued and active cancellation, popup state, site preferences, and idle cleanup.\n");
   process.stdout.write(`Small dirty-root scan: ${JSON.stringify(smallScan)}.\n`);
   process.stdout.write(`Dynamic ${stressIntervals} × 100 append/edit stress: ${JSON.stringify({ before: stressBeforeMetrics, after: stressAfterMetrics, workingSetDifferenceMiB: +((stressAfterMemory - stressBeforeMemory) / 1024 / 1024).toFixed(1) })}.\n`);

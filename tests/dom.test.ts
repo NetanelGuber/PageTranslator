@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { collectTranslationUnits, restoreIfUnchanged } from "../src/shared/dom";
+import { collectTranslationUnits, collectTranslationUnitsInSubtree, restoreIfUnchanged } from "../src/shared/dom";
 
 describe("DOM extraction", () => {
   beforeEach(() => {
@@ -84,5 +84,16 @@ describe("DOM extraction", () => {
     expect(collectTranslationUnits(document).some((unit) => unit.getText().includes("después"))).toBe(false);
     host.removeAttribute("aria-hidden");
     expect(collectTranslationUnits(document).some((unit) => unit.getText().includes("después"))).toBe(true);
+  });
+
+  it("finds late text and text revealed by a visibility change in dirty subtrees", () => {
+    const late = document.createElement("section");
+    late.innerHTML = '<p lang="es">Esta página contiene suficiente texto español para aparecer después de la carga inicial.</p>';
+    document.body.append(late);
+    expect(collectTranslationUnitsInSubtree(late, false).units.some((unit) => unit.getText().includes("después"))).toBe(true);
+    late.hidden = true;
+    expect(collectTranslationUnitsInSubtree(late, false).units.some((unit) => unit.getText().includes("después"))).toBe(false);
+    late.hidden = false;
+    expect(collectTranslationUnitsInSubtree(late, false).units.some((unit) => unit.getText().includes("después"))).toBe(true);
   });
 });

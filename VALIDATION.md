@@ -89,11 +89,40 @@ The working-set measurement is a machine/browser-level observation rather than
 a deterministic unit-test assertion. It includes Chromium process overhead and
 temporary model download/decompression buffers.
 
+## High-priority fixes (2026-09-22)
+
+### Gate 1: worker recovery
+
+- `npm run typecheck`: passed. `npm test -- --run tests/engine-worker.test.ts`: 3 tests passed. `npm run build`: passed.
+- Focused tests simulated initialization rejection, worker error, and an unanswered translation call. Each rejected and terminated the worker; a fresh instance initialized afterward.
+- `npm run smoke`: passed in Helium/Chromium 153.0.0.0 with real bundled models, including direct and pivot translation, cancellation, and engine idle cleanup. This browser run did not inject a worker failure; those failure paths were covered with the focused tests.
+
+### Gate 2: cancel while busy
+
+- `npm run typecheck`: passed. `npm test -- --run tests/page-actions.test.ts tests/engine-worker.test.ts`: 9 tests passed. `npm run build`: passed.
+- `npm run smoke`: passed in Helium/Chromium 153.0.0.0. The popup exposed an enabled Cancel action during model download and active translation; clicking it restored original text promptly, no late result reappeared after 700 ms, and a new page translation completed after each cancellation. The same run exercised queued and active engine cancellation.
+
+### Gate 3: late page text
+
+- `npm run typecheck`: passed. `npm test -- --run tests/dom.test.ts tests/coalescing-runner.test.ts`: 8 tests passed. `npm run build`: passed.
+- `npm run smoke`: passed in Helium/Chromium 153.0.0.0. A page initially without foreign text showed one prompt after a Spanish paragraph was inserted. Revealing hidden Spanish text also prompted. Not now suppressed later prompts on that page; Never for this site suppressed them on a new page. No offscreen engine existed before consent. The existing dynamic translation and model smoke checks still passed.
+
+### Gate 4: explicit Always consent on short pages
+
+- `npm run typecheck`: passed. `npm test -- --run tests/detection.test.ts`: 11 tests passed. `npm run build`: passed.
+- `npm run smoke`: passed in Helium/Chromium 153.0.0.0. Reloading a one-unit short Spanish page with exact-host Always and explicit Spanish source translated it automatically without a prompt. Without Always it remained original. Never overrode Always; a Japanese source without a model route and an English source equal to the target left it original. The missing-route case did not create an offscreen engine.
+
+### Final pass
+
+- `npm test`: 65 tests passed across 16 files, including a synchronous worker `postMessage` failure. `npm run build` passed typecheck and both Vite bundles. `npm run smoke` passed again in Helium/Chromium 153.0.0.0 after the final worker cleanup change.
+- Google Chrome behavior remains unverified on this machine. The worker failure injections are unit-level checks; real-model browser translation and cancellation passed in Helium.
+- Release metadata was bumped to 0.5.1 after the fix validation: `package.json`, both package-lock version fields, and `public/manifest.json`. The 0.5.1 package and manifest were rebuilt and checked for matching versions; the Helium smoke run above exercised the same code before this metadata-only bump.
+
 ## Not yet manually proven
 
 - Current Google Chrome behavior (Chrome was not installed on the development
   machine).
-- Human visual inspection of the final 0.5.0 build in Helium; automated real-browser fixtures passed.
+- Human visual inspection of the final 0.5.1 build in Helium; automated real-browser fixtures passed for the same code before the metadata-only version bump.
 - Long-session behavior across many unrelated sites and language pairs.
 - Every language model exposed by Mozilla's release registry.
 - Store packaging/review; this remains an unpacked local MVP.
