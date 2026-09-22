@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Page Translator icon concept</title>
+  <desc id="desc">A page with a language conversion card showing A translating to a stylized character.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#26364f" />
+      <stop offset="1" stop-color="#465fe0" />
+    </linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" />
+      <stop offset="1" stop-color="#edf2ff" />
+    </linearGradient>
+  </defs>
+
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#background)" />
+  <rect x="2.75" y="2.75" width="58.5" height="58.5" rx="15.25" fill="none" stroke="#ffffff" stroke-opacity=".14" stroke-width="1.5" />
+
+  <path d="M18 8.5h18l10 10v28.8a4.7 4.7 0 0 1-4.7 4.7H18a4.7 4.7 0 0 1-4.7-4.7V13.2A4.7 4.7 0 0 1 18 8.5Z" fill="url(#paper)" />
+  <path d="M36 8.7v8a2 2 0 0 0 2 2h8" fill="#dce5ff" />
+
+  <path d="M20 18h9" stroke="#a9b7dc" stroke-linecap="round" stroke-width="2" />
+  <path d="M20 21h5" stroke="#c0cbe5" stroke-linecap="round" stroke-width="1.5" />
+
+  <rect x="17" y="24" width="30" height="17" rx="5" fill="#e3e9ff" />
+  <path d="m21 36 3.7-9.5 3.7 9.5m-6.1-3h4.8" fill="none" stroke="#344bb7" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" />
+  <path d="M29.5 31.5h4.3m0 0-1.5-1.4m1.5 1.4-1.5 1.4" fill="none" stroke="#5870dc" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.35" />
+  <path d="m37.7 25.2.6 1m-3.1 1.8h5.8m-2.9 0-3.9 7.3m3.9-7.3 3.9 7.3m-6.2-3.2h4.6" fill="none" stroke="#344bb7" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.45" />
+
+  <path d="M20 45.5h23" stroke="#a9b7dc" stroke-linecap="round" stroke-width="2" />
+  <path d="M20 49h16" stroke="#c0cbe5" stroke-linecap="round" stroke-width="1.5" />
+</svg>

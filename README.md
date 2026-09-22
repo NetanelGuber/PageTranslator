@@ -68,8 +68,6 @@ workspace, and sequential pivoting to bound memory use.
   released with the worker after 30 seconds idle.
 - **Show original** restores only values that still equal the extension's
   translation, so newer page-authored changes are preserved.
-- **Translate new/changed content** checks pending page changes using the same
-  scoped scan as automatic dynamic translation. It reports when none is pending.
 - The popup reports detection, download, verification, model loading, pivot
   translation, completion, skipped content, cancellation, and failures.
 - **Never for this site** is stored for the exact hostname.

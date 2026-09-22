@@ -9,7 +9,6 @@ const statusDot = document.querySelector<HTMLElement>("#status-dot")!;
 const targetSelect = document.querySelector<HTMLSelectElement>("#target-language")!;
 const sourceSelect = document.querySelector<HTMLSelectElement>("#source-language")!;
 const translateButton = document.querySelector<HTMLButtonElement>("#translate")!;
-const translateNewButton = document.querySelector<HTMLButtonElement>("#translate-new")!;
 const restoreButton = document.querySelector<HTMLButtonElement>("#restore")!;
 const cancelButton = document.querySelector<HTMLButtonElement>("#cancel")!;
 const retryButton = document.querySelector<HTMLButtonElement>("#retry")!;
@@ -70,9 +69,9 @@ function render(): void {
   const busy = ["detecting", "downloading", "verifying", "loading", "pivoting", "translating"].includes(phase);
   statusDot.dataset.tone = phase === "failed" ? "error" : busy ? "busy" : phase === "complete" ? "ok" : "";
   translateButton.disabled = !settings || !activeTabId || busy || phase === "setup";
-  translateNewButton.disabled = !settings || !activeTabId || busy || phase === "setup";
   const actions = pageActionAvailability(phase, state?.canRestore ?? false, activeTabId !== null);
   restoreButton.disabled = !actions.restore || busy;
+  restoreButton.hidden = !actions.restore;
   cancelButton.hidden = !actions.cancel;
   cancelButton.disabled = !actions.cancel;
   retryButton.hidden = !state?.canRetry;
@@ -121,11 +120,6 @@ await refreshState();
 
 translateButton.addEventListener("click", async () => {
   await sendToPage({ type: "TRANSLATE_PAGE", aggressive: aggressiveToggle.checked });
-  await refreshState();
-});
-
-translateNewButton.addEventListener("click", async () => {
-  await sendToPage({ type: "TRANSLATE_NEW_CONTENT" });
   await refreshState();
 });
 

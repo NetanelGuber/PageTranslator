@@ -692,17 +692,6 @@ async function handlePageMessage(message: RuntimeMessage): Promise<unknown> {
     case "TRANSLATE_PAGE":
       await startTranslation(message.aggressive ?? state.aggressive);
       return state;
-    case "TRANSLATE_NEW_CONTENT":
-      if (!translationActive) {
-        setState({ message: "Translate the page first to watch for new content." });
-        return state;
-      }
-      if (dirtyRoots.size === 0) {
-        setState({ message: "No new or changed content is pending." });
-        return state;
-      }
-      await startTranslation(state.aggressive, true);
-      return state;
     case "RESTORE_PAGE":
       await restorePage(false);
       return state;

@@ -83,7 +83,6 @@ export type RuntimeMessage =
   | { type: "GET_PAGE_STATE" }
   | { type: "GET_DIAGNOSTICS" }
   | { type: "TRANSLATE_PAGE"; aggressive?: boolean }
-  | { type: "TRANSLATE_NEW_CONTENT" }
   | { type: "RESTORE_PAGE" }
   | { type: "SET_AGGRESSIVE"; enabled: boolean }
   | { type: "RETRY_TRANSLATION" }

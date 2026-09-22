@@ -4,71 +4,93 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Page Translator</title>
-    <script type="module" crossorigin src="/assets/popup-D2rXwrJD.js"></script>
+    <script type="module" crossorigin src="/assets/popup-Bb1oiqpA.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/modulepreload-polyfill-P2Xu9kJm.js">
     <link rel="modulepreload" crossorigin href="/assets/languages-pltVzrwW.js">
     <link rel="modulepreload" crossorigin href="/assets/storage-DheYnYNU.js">
-    <link rel="stylesheet" crossorigin href="/assets/ui-CSG-4icu.css">
+    <link rel="stylesheet" crossorigin href="/assets/ui-wP5Njzdv.css">
   </head>
   <body>
     <main class="panel">
-      <header>
-        <div>
+      <header class="popup-header">
+        <div class="brand">
           <h1>Page Translator</h1>
-          <p id="status" class="status">Checking this page…</p>
         </div>
-        <span id="status-dot" class="status-dot" aria-hidden="true"></span>
+        <span class="status-indicator" aria-hidden="true">
+          <span id="status-dot" class="status-dot"></span>
+        </span>
       </header>
 
-      <label class="field">
-        <span>Translate to</span>
-        <select id="target-language" disabled>
-          <option value="">Loading languages…</option>
-        </select>
-      </label>
+      <section class="site-context" aria-label="Current site">
+        <span class="eyebrow">Current site</span>
+        <strong id="hostname">Checking page…</strong>
+      </section>
 
-      <label class="field">
-        <span>Translate from on this site</span>
-        <select id="source-language" disabled>
-          <option value="">Auto-detect</option>
-        </select>
-        <small>Choosing a language disables detection for this hostname.</small>
-      </label>
+      <div id="status" class="status-message" role="status" aria-live="polite">Checking this page…</div>
 
-      <div class="actions">
+      <section class="language-card" aria-label="Translation languages">
+        <div class="section-heading">
+          <h2>Translation</h2>
+        </div>
+        <div class="language-fields">
+          <label class="field">
+            <span>From</span>
+            <select id="source-language" disabled>
+              <option value="">Auto-detect</option>
+            </select>
+            <small>Override detection for this site.</small>
+          </label>
+
+          <label class="field">
+            <span>To</span>
+            <select id="target-language" disabled>
+              <option value="">Loading languages…</option>
+            </select>
+            <small>Language for translated text.</small>
+          </label>
+        </div>
+      </section>
+
+      <section class="page-actions" aria-label="Page translation actions">
         <button id="translate" class="primary" disabled>Translate page</button>
-        <button id="translate-new" disabled>Translate new/changed content</button>
-        <button id="restore" disabled>Show original</button>
-        <button id="cancel" hidden disabled>Cancel translation</button>
-        <button id="retry" hidden>Retry</button>
-      </div>
+        <button id="restore" class="secondary-action" hidden disabled>Show original</button>
+        <button id="cancel" class="secondary-action" hidden disabled>Cancel translation</button>
+        <button id="retry" class="secondary-action" hidden>Retry</button>
+      </section>
 
-      <label class="toggle-row">
-        <input id="aggressive" type="checkbox" disabled />
-        <span>
-          <strong>Aggressive mode</strong>
-          <small>Includes hidden and normally skipped text.</small>
-        </span>
-      </label>
+      <section class="site-preferences" aria-label="Site preferences">
+        <div class="section-heading">
+          <h2>On this site</h2>
+        </div>
+        <label class="toggle-row">
+          <span>
+            <strong>Always translate</strong>
+            <small>Automatically translate after each reload.</small>
+          </span>
+          <input id="always-site" type="checkbox" disabled />
+        </label>
+        <label class="toggle-row">
+          <span>
+            <strong>Never prompt</strong>
+            <small>Skip translation prompts on this site.</small>
+          </span>
+          <input id="never-site" type="checkbox" disabled />
+        </label>
+      </section>
 
-      <label class="toggle-row">
-        <input id="always-site" type="checkbox" disabled />
-        <span>
-          <strong>Always translate this site</strong>
-          <small>Automatically translates after each reload.</small>
-        </span>
-      </label>
-
-      <label class="toggle-row">
-        <input id="never-site" type="checkbox" disabled />
-        <span>
-          <strong>Never prompt on this site</strong>
-          <small id="hostname">Current hostname</small>
-        </span>
-      </label>
+      <details class="advanced-options">
+        <summary>Advanced translation</summary>
+        <label class="toggle-row">
+          <span>
+            <strong>Aggressive mode</strong>
+            <small>Includes hidden and normally skipped text.</small>
+          </span>
+          <input id="aggressive" type="checkbox" disabled />
+        </label>
+      </details>
 
       <footer>
-        <button id="settings" class="link-button">Translation settings</button>
+        <button id="settings" class="link-button">Translation settings <span aria-hidden="true">→</span></button>
       </footer>
     </main>
   </body>
